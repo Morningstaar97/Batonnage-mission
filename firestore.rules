@@ -1,0 +1,69 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidMission(data) {
+      return data.sinistre is string && data.sinistre.size() > 0 && data.sinistre.size() <= 200
+        && data.assure is string && data.assure.size() > 0 && data.assure.size() <= 300
+        && data.type is string && data.type in ['GP', 'CC', 'SAD', 'SAD auto', 'GAG']
+        && data.observations is string && data.observations.size() <= 2000
+        && data.createdBy == request.auth.uid
+        && data.createdAt == request.time
+        && data.updatedAt == request.time
+        && data.arEnvoye is bool
+        && data.kycOk is bool
+        && data.isAlert is bool
+        && (!('reasonNonSad' in data) || data.reasonNonSad is string);
+    }
+
+    match /missions/{missionId} {
+      allow list: if isSignedIn() && resource.data.createdBy == request.auth.uid;
+      allow get: if isSignedIn() && resource.data.createdBy == request.auth.uid;
+      
+      allow create: if isSignedIn() 
+        && isValidId(missionId)
+        && isValidMission(incoming());
+        
+      allow update: if isSignedIn()
+        && resource.data.createdBy == request.auth.uid
+        && incoming().createdBy == request.auth.uid
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Action: Edit all manageable fields
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'sinistre', 'assure', 'type', 'observations', 'updatedAt', 
+            'dateMission', 'arEnvoye', 'kycOk', 'reasonNonSad', 'isAlert'
+          ])
+        );
+        
+      allow delete: if isSignedIn()
+        && resource.data.createdBy == request.auth.uid;
+    }
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "entities": {
+    "Mission": {
+      "title": "Mission de Sinistre",
+      "description": "Une mission d'expertise ou de réparation liée à un sinistre.",
+      "type": "object",
+      "properties": {
+        "sinistre": {
+          "type": "string",
+          "description": "Numéro du dossier de sinistre."
+        },
+        "assure": {
+          "type": "string",
+          "description": "Nom de l'assuré."
+        },
+        "type": {
+          "type": "string",
+          "enum": ["GP", "CC", "SAD", "SAD auto", "GAG"],
+          "description": "Type de mission (GP: Garage Partenaire, CC: Garage Client, SAD: Service à Domicile, SAD auto, GAG)."
+        },
+        "dateMission": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "arEnvoye": {
+          "type": "boolean"
+        },
+        "kycOk": {
+          "type": "boolean"
+        },
+        "isAlert": {
+          "type": "boolean"
+        },
+        "reasonNonSad": {
+          "type": "string"
+        },
+        "observations": {
+          "type": "string",
+          "description": "Remarques ou notes sur la mission."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "createdBy": {
+          "type": "string",
+          "description": "UID de l'utilisateur ayant créé la mission."
+        }
+      },
+      "required": ["sinistre", "assure", "type", "createdAt", "updatedAt", "createdBy"]
+    }
+  },
+  "firestore": {
+    "missions/{missionId}": {
+      "schema": "Mission",
+      "description": "Collection des missions enregistrées."
+    }
+  }
+}
