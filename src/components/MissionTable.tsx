@@ -136,7 +136,7 @@ export function MissionTable({
                     {mission.observations || '-'}
                   </td>
                   <td className="px-6 py-5 text-[11px] text-gray-500 font-mono">
-                    {mission.dateMission?.toDate ? format(mission.dateMission.toDate(), 'dd/MM/yyyy', { locale: fr }) : '-'}
+                    {mission.dateMission ? format(new Date(mission.dateMission), 'dd/MM/yyyy', { locale: fr }) : '-'}
                   </td>
                   <td className="px-6 py-5 text-right pr-8">
                     <div className="flex justify-end gap-3">

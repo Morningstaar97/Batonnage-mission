@@ -8,7 +8,7 @@ import { mapExcelColumns, ColumnMapping } from '../services/aiService';
 interface ExcelImportProps {
   isOpen: boolean;
   onClose: () => void;
-  onImport: (missions: Partial<Mission>[]) => Promise<void>;
+  onImport: (missions: Partial<Mission>[]) => void;
 }
 
 export function ExcelImport({ isOpen, onClose, onImport }: ExcelImportProps) {
@@ -88,12 +88,22 @@ export function ExcelImport({ isOpen, onClose, onImport }: ExcelImportProps) {
             else if (rawTypeValue.includes('GP') || rawTypeValue.includes('GRANDE PERTE')) finalType = 'GP';
             else finalType = 'GP'; // Par défaut
 
+            let finalDate = null;
+            if (rowDate) {
+              try {
+                const d = new Date(rowDate);
+                if (!isNaN(d.getTime())) finalDate = d.toISOString();
+              } catch (e) {
+                console.warn("Date error", e);
+              }
+            }
+
             return {
               sinistre: valSinistre,
               assure: valAssure,
               type: finalType,
               observations: valObs,
-              dateMission: rowDate || null,
+              dateMission: finalDate,
               arEnvoye: Boolean(mapping.arEnvoye ? row[mapping.arEnvoye] : (row['AR Envoyé'] || row['arEnvoye'] || false)),
               kycOk: Boolean(mapping.kycOk ? row[mapping.kycOk] : (row['KYC OK'] || row['kycOk'] || false)),
               isAlert: valIsAlert,
@@ -132,24 +142,17 @@ export function ExcelImport({ isOpen, onClose, onImport }: ExcelImportProps) {
     }
   };
 
-  const handleConfirm = async () => {
+  const handleConfirm = () => {
     if (previewData.length === 0) return;
     setIsProcessing(true);
     setError(null);
     try {
-      await onImport(previewData);
+      onImport(previewData);
       onClose();
       reset();
     } catch (err: any) {
       console.error("Import error detail:", err);
-      let msg = "Erreur lors de l'importation vers la base de données.";
-      try {
-        const parsed = JSON.parse(err.message);
-        if (parsed.error) msg = `Erreur: ${parsed.error}`;
-      } catch (e) {
-        msg = err.message || msg;
-      }
-      setError(msg);
+      setError(err.message || "Erreur lors de l'importation.");
     } finally {
       setIsProcessing(false);
     }

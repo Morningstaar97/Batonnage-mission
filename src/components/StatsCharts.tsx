@@ -29,7 +29,7 @@ export function StatsCharts({ missions }: StatsChartsProps) {
 
     return months.map(month => {
       const count = missions.filter(m => {
-        const date = m.dateMission?.toDate?.() || new Date();
+        const date = m.dateMission ? new Date(m.dateMission) : new Date();
         return isSameMonth(date, month);
       }).length;
 

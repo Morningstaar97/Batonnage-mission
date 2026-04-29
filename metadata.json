@@ -1,6 +1,6 @@
 {
-  "name": "Gestionnaire de Sinistres",
-  "description": "Application intuitive pour gérer les missions de sinistres (GP, CC, SAD) avec tableau de bord et statistiques en temps réel.",
+  "name": "Sinisync",
+  "description": "Système de gestion de missions sinistres performant avec stockage local, tableau de bord intuitif et import Excel assisté par IA.",
   "requestFramePermissions": [],
   "majorCapabilities": []
 }

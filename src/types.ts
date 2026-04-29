@@ -5,15 +5,21 @@ export interface Mission {
   sinistre: string;
   assure: string;
   type: MissionType;
-  dateMission: any; // Firestore Timestamp
+  dateMission: string; // ISO String
   arEnvoye: boolean;
   kycOk: boolean;
   isAlert: boolean;
   reasonNonSad?: string;
   observations: string;
-  createdAt: any; // Firestore Timestamp
-  updatedAt: any; // Firestore Timestamp
+  createdAt: string; // ISO String
+  updatedAt: string; // ISO String
   createdBy: string;
+}
+
+export interface LocalUser {
+  id: string;
+  email: string;
+  name?: string;
 }
 
 export interface MissionStats {

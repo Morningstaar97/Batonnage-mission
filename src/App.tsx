@@ -1,19 +1,17 @@
 import { useState, useEffect, useMemo } from 'react';
-import { db, auth, login, logout, handleFirestoreError, OperationType } from './lib/firebase';
-import { Timestamp, onSnapshot, collection, query, where, addDoc, updateDoc, deleteDoc, doc, serverTimestamp, orderBy, writeBatch } from 'firebase/firestore';
-import { onAuthStateChanged, User } from 'firebase/auth';
-import { Mission, MissionStats } from './types';
+import { getLocalUser, setLocalUser, getLocalMissions, saveLocalMissions } from './lib/storage';
+import { Mission, MissionStats, LocalUser } from './types';
 import { Dashboard } from './components/Dashboard';
 import { MissionTable } from './components/MissionTable';
 import { MissionForm } from './components/MissionForm';
 import { DeleteConfirmation } from './components/DeleteConfirmation';
 import { StatsCharts } from './components/StatsCharts';
 import { ExcelImport } from './components/ExcelImport';
-import { Plus, LogOut, ChevronRight, LayoutDashboard, Database, Info, FileSpreadsheet } from 'lucide-react';
+import { Plus, LogOut, ChevronRight, LayoutDashboard, Database, Info, FileSpreadsheet, AlertTriangle, User as UserIcon } from 'lucide-react';
 import { motion } from 'motion/react';
 
 export default function App() {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<LocalUser | null>(null);
   const [loading, setLoading] = useState(true);
   const [missions, setMissions] = useState<Mission[]>([]);
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -21,44 +19,46 @@ export default function App() {
   const [editingMission, setEditingMission] = useState<Mission | null>(null);
   const [missionToDelete, setMissionToDelete] = useState<string | null>(null);
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [filterType, setFilterType] = useState('all');
   const [sortBy, setSortBy] = useState<'date' | 'sinistre' | 'assure'>('date');
   const [view, setView] = useState<'missions' | 'analytics'>('missions');
 
-  // Auth Listener
+  // Auth & Data Initialization
   useEffect(() => {
-    return onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      setLoading(false);
-    });
+    const storedUser = getLocalUser();
+    const storedMissions = getLocalMissions();
+    
+    if (storedUser) {
+      setUser(storedUser);
+      setMissions(storedMissions);
+    }
+    setLoading(false);
   }, []);
 
-  // Data Listener
-  useEffect(() => {
-    if (!user) {
-      setMissions([]);
-      return;
+  const handleLogin = (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const formData = new FormData(e.currentTarget);
+    const name = formData.get('name') as string;
+    
+    if (name.trim()) {
+      const newUser: LocalUser = {
+        id: 'local-user-' + Date.now(),
+        email: name.trim() + '@local',
+        name: name.trim()
+      };
+      setUser(newUser);
+      setLocalUser(newUser);
+      setMissions(getLocalMissions());
     }
+  };
 
-    const q = query(
-      collection(db, 'missions'),
-      where('createdBy', '==', user.uid),
-      orderBy('createdAt', 'desc')
-    );
-
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      const data = snapshot.docs.map(doc => ({
-        id: doc.id,
-        ...doc.data()
-      })) as Mission[];
-      setMissions(data);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.GET, 'missions');
-    });
-
-    return () => unsubscribe();
-  }, [user]);
+  const handleLogout = () => {
+    setUser(null);
+    setLocalUser(null);
+    setMissions([]);
+  };
 
   // Derived Stats
   const stats = useMemo<MissionStats>(() => {
@@ -68,7 +68,6 @@ export default function App() {
     const sadAuto = missions.filter(m => m.type === 'SAD auto').length;
     const gag = missions.filter(m => m.type === 'GAG').length;
     
-    // Performance metrics (only on GP, SAD, CC)
     const totalGP = gp + sad;
     const eligibleTotal = gp + sad + cc;
     const total = missions.length;
@@ -81,7 +80,6 @@ export default function App() {
   const filteredMissions = useMemo(() => {
     let result = missions;
 
-    // Apply Search
     if (search.trim()) {
       const s = search.toLowerCase();
       result = result.filter(m => 
@@ -91,16 +89,14 @@ export default function App() {
       );
     }
 
-    // Apply Type Filter
     if (filterType !== 'all') {
       result = result.filter(m => m.type === filterType);
     }
 
-    // Apply Sort
     result = [...result].sort((a, b) => {
       if (sortBy === 'date') {
-        const dateA = a.dateMission?.seconds || 0;
-        const dateB = b.dateMission?.seconds || 0;
+        const dateA = new Date(a.dateMission || 0).getTime();
+        const dateB = new Date(b.dateMission || 0).getTime();
         return dateB - dateA;
       }
       if (sortBy === 'sinistre') {
@@ -115,112 +111,72 @@ export default function App() {
     return result;
   }, [missions, search, filterType, sortBy]);
 
-  const handleCreateOrUpdate = async (data: Partial<Mission>) => {
+  const handleCreateOrUpdate = (data: Partial<Mission>) => {
     if (!user) return;
 
-    try {
-      const payload = {
+    let updatedMissions: Mission[];
+    const now = new Date().toISOString();
+
+    if (editingMission) {
+      updatedMissions = missions.map(m => 
+        m.id === editingMission.id 
+          ? { ...m, ...data, updatedAt: now } as Mission
+          : m
+      );
+    } else {
+      const newMission: Mission = {
         ...data,
-        dateMission: data.dateMission ? Timestamp.fromDate(new Date(data.dateMission as string)) : serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      };
-
-      if (editingMission) {
-        const missionRef = doc(db, 'missions', editingMission.id);
-        await updateDoc(missionRef, payload);
-      } else {
-        await addDoc(collection(db, 'missions'), {
-          ...payload,
-          createdAt: serverTimestamp(),
-          createdBy: user.uid,
-        });
-      }
-      setIsFormOpen(false);
-      setEditingMission(null);
-    } catch (error) {
-      handleFirestoreError(error, editingMission ? OperationType.UPDATE : OperationType.CREATE, 'missions');
+        id: 'mission-' + Date.now(),
+        createdAt: now,
+        updatedAt: now,
+        createdBy: user.id,
+        dateMission: data.dateMission || now,
+      } as Mission;
+      updatedMissions = [newMission, ...missions];
     }
+
+    setMissions(updatedMissions);
+    saveLocalMissions(updatedMissions);
+    setIsFormOpen(false);
+    setEditingMission(null);
   };
 
-  const handleDelete = async () => {
+  const handleDelete = () => {
     if (!missionToDelete) return;
-    try {
-      await deleteDoc(doc(db, 'missions', missionToDelete));
-      setMissionToDelete(null);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, `missions/${missionToDelete}`);
-    }
+    const updatedMissions = missions.filter(m => m.id !== missionToDelete);
+    setMissions(updatedMissions);
+    saveLocalMissions(updatedMissions);
+    setMissionToDelete(null);
   };
 
-  const handleResetAll = async () => {
-    if (!user) return;
-    
-    try {
-      const batch = writeBatch(db);
-      missions.forEach((m) => {
-        batch.delete(doc(db, 'missions', m.id));
-      });
-      await batch.commit();
-      setIsResetConfirmOpen(false);
-    } catch (error) {
-      handleFirestoreError(error, OperationType.DELETE, 'missions/batch');
-    }
+  const handleResetAll = () => {
+    setMissions([]);
+    saveLocalMissions([]);
+    setIsResetConfirmOpen(false);
   };
 
-  const handleBatchImport = async (importedMissions: Partial<Mission>[]) => {
+  const handleBatchImport = (importedMissions: Partial<Mission>[]) => {
     if (!user) return;
     
-    // Split into chunks of 500 (Firestore limit)
-    const chunkSize = 500;
-    const chunks = [];
-    for (let i = 0; i < importedMissions.length; i += chunkSize) {
-      chunks.push(importedMissions.slice(i, i + chunkSize));
-    }
+    const now = new Date().toISOString();
+    const newMissions: Mission[] = importedMissions.map((m, index) => ({
+      ...m,
+      id: `imported-${Date.now()}-${index}`,
+      createdAt: now,
+      updatedAt: now,
+      createdBy: user.id,
+      dateMission: m.dateMission || now,
+    } as Mission));
 
-    try {
-      for (const chunk of chunks) {
-        const batch = writeBatch(db);
-        
-        chunk.forEach((missionData) => {
-          const missionRef = doc(collection(db, 'missions'));
-          
-          // Better date handling
-          let dateMission: any = serverTimestamp();
-          if (missionData.dateMission) {
-            try {
-              const d = new Date(missionData.dateMission as any);
-              if (!isNaN(d.getTime())) {
-                dateMission = Timestamp.fromDate(d);
-              }
-            } catch (e) {
-              console.warn("Invalid date mission in row", missionData);
-            }
-          }
-          
-          batch.set(missionRef, {
-            ...missionData,
-            dateMission,
-            createdAt: serverTimestamp(),
-            updatedAt: serverTimestamp(),
-            createdBy: user.uid,
-          });
-        });
-
-        await batch.commit();
-      }
-    } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, 'missions');
-    }
+    const updatedMissions = [...newMissions, ...missions];
+    setMissions(updatedMissions);
+    saveLocalMissions(updatedMissions);
   };
 
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#0A0A0B]">
-        <motion.div 
-          animate={{ rotate: 360 }}
-          transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
-          className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full"
-        />
+        <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
@@ -233,19 +189,33 @@ export default function App() {
             <div className="w-16 h-16 bg-indigo-600 rounded-3xl mx-auto flex items-center justify-center shadow-xl shadow-indigo-600/20">
               <Database className="w-8 h-8 text-white" />
             </div>
-            <h1 className="text-3xl font-bold tracking-tight text-white italic">SiniSync</h1>
+            <h1 className="text-3xl font-bold tracking-tight text-white italic">Sinisync</h1>
             <p className="text-gray-500 text-sm leading-relaxed px-4">
-              Connectez-vous pour synchroniser vos missions sinistres en temps réel.
+              Entrez votre nom pour accéder à votre espace de stockage local.
             </p>
           </div>
-          <button
-            onClick={login}
-            className="w-full py-4 px-4 bg-indigo-600 text-white rounded-2xl font-bold uppercase tracking-widest shadow-lg hover:shadow-indigo-600/20 hover:bg-indigo-500 transition-all active:scale-95"
-          >
-            Connexion Google
-          </button>
+          
+          <form onSubmit={handleLogin} className="space-y-4 mt-8">
+            <div className="relative group">
+              <UserIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 group-focus-within:text-indigo-400 transition-colors" />
+              <input
+                required
+                name="name"
+                type="text"
+                placeholder="Votre Nom ou Identifiant"
+                className="w-full pl-12 pr-4 py-4 bg-white/5 border border-white/10 rounded-2xl text-white placeholder:text-gray-600 focus:outline-none focus:border-indigo-500/50 transition-all font-bold tracking-tight"
+              />
+            </div>
+            <button
+              type="submit"
+              className="w-full py-4 px-4 bg-indigo-600 text-white rounded-2xl font-bold uppercase tracking-widest shadow-lg hover:shadow-indigo-600/20 hover:bg-indigo-500 transition-all active:scale-95 flex items-center justify-center gap-2"
+            >
+              Accéder au Dashboard
+            </button>
+          </form>
+
           <div className="text-[10px] text-gray-600 font-mono uppercase tracking-[0.3em] pt-4">
-            Secured Infrastructure
+            Local Persistence Active
           </div>
         </div>
       </div>
@@ -262,10 +232,10 @@ export default function App() {
               <Database className="w-5 h-5 text-white" />
             </div>
             <h1 className="text-xl font-bold tracking-tighter text-white">
-              SiniSync
+              Sinisync
             </h1>
             <div className="hidden lg:flex items-center gap-2 border-l border-white/10 ml-6 pl-6">
-               <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">{user.email}</span>
+               <span className="text-[10px] text-gray-500 font-bold uppercase tracking-widest">{user.name}</span>
             </div>
           </div>
 
@@ -304,7 +274,7 @@ export default function App() {
               <span className="hidden sm:inline">Nouveau Dossier</span>
             </button>
             <button
-              onClick={logout}
+              onClick={handleLogout}
               className="p-2 text-gray-500 hover:text-white hover:bg-white/5 transition-all rounded-xl"
               title="Logout"
             >
@@ -337,6 +307,22 @@ export default function App() {
 
         {/* Dashboard Stats */}
         <Dashboard stats={stats} />
+
+        {error && (
+          <div className="mb-8 p-4 bg-red-500/10 border border-red-500/20 rounded-2xl flex items-center gap-4 text-red-500 text-xs font-bold uppercase tracking-widest animate-in fade-in slide-in-from-top-2">
+            <AlertTriangle className="w-5 h-5 flex-shrink-0" />
+            <span className="flex-1">{error}</span>
+            <button 
+              onClick={() => {
+                setError(null);
+                // Force a re-mount by toggling a key or just letting the effect re-run if possible
+              }}
+              className="px-3 py-1 bg-red-500/20 hover:bg-red-500/30 rounded-lg transition-colors"
+            >
+              Réessayer
+            </button>
+          </div>
+        )}
 
         {/* Mobile Navigation */}
         <div className="flex md:hidden items-center bg-white/5 p-1 rounded-xl border border-white/5 mb-8">

@@ -30,7 +30,7 @@ export function MissionForm({ mission, onSubmit, onCancel, isOpen }: MissionForm
         sinistre: mission.sinistre,
         assure: mission.assure,
         type: mission.type,
-        dateMission: mission.dateMission?.toDate ? format(mission.dateMission.toDate(), 'yyyy-MM-dd') : '',
+        dateMission: mission.dateMission ? format(new Date(mission.dateMission), 'yyyy-MM-dd') : '',
         arEnvoye: mission.arEnvoye || false,
         kycOk: mission.kycOk || false,
         isAlert: mission.isAlert || false,
