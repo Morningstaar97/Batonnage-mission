@@ -1,7 +1,15 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { Mission } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+let aiInstance: any = null;
+
+function getAi() {
+  if (!aiInstance) {
+    const apiKey = (process.env as any).GEMINI_API_KEY || '';
+    aiInstance = new GoogleGenAI({ apiKey });
+  }
+  return aiInstance;
+}
 
 export interface ColumnMapping {
   sinistre: string;
@@ -40,6 +48,7 @@ export async function mapExcelColumns(headers: string[], sampleRows: any[]): Pro
   `;
 
   try {
+    const ai = getAi();
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: prompt,
